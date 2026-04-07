@@ -60,6 +60,7 @@ def agent_node(state: AgentState) -> dict:
     """
     Agent node that processes messages and generates responses.
     The SystemMessage is always added at the beginning of the conversation.
+    Uses streaming with accumulation to support real-time UX.
     """
     messages = list(state["messages"])
 
@@ -73,8 +74,13 @@ def agent_node(state: AgentState) -> dict:
     # Add fresh SystemMessage at start
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
-    response = llm_with_tools.invoke(messages)
-    return {"messages": [response]}
+    # Stream and accumulate chunks
+    full_response = None
+    for chunk in llm_with_tools.stream(messages):
+        full_response = chunk if full_response is None else full_response + chunk
+
+    # Return accumulated message (will be AIMessageChunk with full content/tool_calls)
+    return {"messages": [full_response]}
 
 
 def get_last_ai_message_content(messages: Sequence[BaseMessage]) -> str:
@@ -230,14 +236,16 @@ def format_tool_call(tool_call: dict) -> str:
 
 def stream_agent_interaction(
     graph, user_message: HumanMessage, config: dict
-) -> tuple[str, list, float]:
+) -> tuple[str, list, float, str | None]:
     """
     Stream the agent interaction and show intermediate steps.
+    Uses real streaming with accumulation from the model.
 
     Returns:
         - final_response: The final text response
         - all_messages: All messages generated during the interaction
         - elapsed_time: Total time taken
+        - thinking_content: Extracted reasoning content if any
     """
     start_time = time.time()
     all_messages = []
@@ -247,12 +255,15 @@ def stream_agent_interaction(
     # Track which steps we've shown
     showed_thinking = False
     showed_tool_call = False
-    showed_truncation_warning = False
 
-    if len(all_messages) > MAX_MESSAGES:
-        print(f"\n⚠️  Truncation: Giữ lại {MAX_MESSAGES} messages cuối")
-        showed_truncation_warning = True
-        sys.stdout.flush()
+    # Check for truncation upfront
+    try:
+        state = graph.get_state(config)
+        if len(state.values.get("messages", [])) > MAX_MESSAGES:
+            print(f"\n⚠️  Truncation: Giữ lại {MAX_MESSAGES} messages cuối")
+            sys.stdout.flush()
+    except:
+        pass
 
     print("\n🤔 Agent đang suy nghĩ...")
     sys.stdout.flush()
@@ -261,7 +272,7 @@ def stream_agent_interaction(
     for chunk in graph.stream(
         {"messages": [user_message]},
         config=config,
-        stream_mode="updates",  # This gives us updates at each node
+        stream_mode="updates",
     ):
         for node_name, node_output in chunk.items():
             if node_name == "agent":
@@ -298,7 +309,8 @@ def stream_agent_interaction(
 
                             # If this is a response with no tool calls, it's the final answer
                             if not (hasattr(msg, "tool_calls") and msg.tool_calls):
-                                print(f"\n📝 Agent đang hoàn thiện câu trả lời...")
+                                # Stream the final response content
+                                print(f"\n📝 Câu trả lời:")
                                 sys.stdout.flush()
 
             elif node_name == "tools":
@@ -325,6 +337,7 @@ def stream_agent_interaction(
 
                 # After tools, agent will think again
                 showed_thinking = False
+                showed_tool_call = False
                 print(f"\n🤔 Agent đang phân tích kết quả...")
                 sys.stdout.flush()
 
@@ -343,9 +356,7 @@ if __name__ == "__main__":
         print("Mode: DEVELOPMENT (debug enabled)")
     print("Type 'quit' to exit.")
     print("=" * 60)
-    print(
-        "\n💡 Tính năng mới: Bạn sẽ thấy quá trình suy nghĩ và gọi công cụ của Agent!"
-    )
+    print("\n💡 Streaming UX: Shows thinking, tool calls, and tool results!")
     print("-" * 60)
 
     # Use thread_id for persistent conversation state
@@ -363,11 +374,9 @@ if __name__ == "__main__":
         if not user_input:
             continue
 
-        # Create a HumanMessage from user input
-        user_message = HumanMessage(content=user_input)
-
         try:
-            # Stream the interaction with visible intermediate steps
+            # LangGraph mode with tool calling support
+            user_message = HumanMessage(content=user_input)
             final_response, all_messages, elapsed_time, thinking_content = (
                 stream_agent_interaction(graph, user_message, config)
             )
@@ -389,19 +398,7 @@ if __name__ == "__main__":
                 clean_answer = final_response
 
             # Print the final answer
-            print(f"\n🤖 TravelBuddy: ", end="", flush=True)
-
-            # Simulate streaming by printing character by character with small delay
-            import time as time_module
-
-            for i, char in enumerate(clean_answer):
-                print(char, end="", flush=True)
-                # Small delay every 3 characters for streaming effect
-                if i % 3 == 0:
-                    time_module.sleep(0.005)
-
-            print()  # New line after response
-            sys.stdout.flush()
+            print(f"\n🤖 TravelBuddy: {clean_answer}", flush=True)
 
             # Calculate timing
             chars_per_sec = len(clean_answer) / elapsed_time if elapsed_time > 0 else 0
