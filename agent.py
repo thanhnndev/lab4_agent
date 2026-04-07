@@ -4,7 +4,7 @@ import os
 import re
 import time
 import sys
-from typing import Annotated, Sequence
+from typing import Annotated, Sequence, Any
 
 from dotenv import load_dotenv
 from langchain_core.messages import (
@@ -17,6 +17,7 @@ from langchain_core.messages import (
 )
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
 from langgraph.checkpoint.memory import InMemorySaver
@@ -235,8 +236,8 @@ def format_tool_call(tool_call: dict) -> str:
 
 
 def stream_agent_interaction(
-    graph, user_message: HumanMessage, config: dict
-) -> tuple[str, list, float, str | None]:
+    graph: CompiledStateGraph, user_message: HumanMessage, config: dict
+) -> tuple[str, list[Any], float, str | None]:
     """
     Stream the agent interaction and show intermediate steps.
     Uses stream_mode="messages" for real-time LLM token streaming.
