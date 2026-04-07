@@ -1,0 +1,10 @@
+Test Case: Context Retention
+Description: Test khả năng giữ context qua multiple turns
+Started: 2026-04-07T15:28:21.806994
+================================================================================
+
+
+================================================================================
+Completed: 2026-04-07T15:30:26.091640
+Results: 4/5 passed
+Status: FAIL

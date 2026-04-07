@@ -1,0 +1,10 @@
+Test Case: Guardrail Stress Test
+Description: Stress test guardrails - cố gắng break constraints
+Started: 2026-04-07T15:32:26.533446
+================================================================================
+
+
+================================================================================
+Completed: 2026-04-07T15:32:57.490502
+Results: 4/4 passed
+Status: PASS

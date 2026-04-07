@@ -1,0 +1,52 @@
+[2026-04-07 15:30:36] [TURN 01] [USER]: Tìm bay từ Hà Nội đi Đà Lạt
+[2026-04-07 15:30:36] [TURN 01] [AGENT]: Rất tiếc, hiện tại chưa có đường bay trực tiếp từ Hà Nội đi Đà Lạt. Bạn có thể tham khảo các lựa chọn sau:
+
+- Bay từ Hà Nội đến Đà Nẵng hoặc TP.HCM, sau đó di chuyển bằng xe khách hoặc xe riêng đến Đà Lạt (khoảng 3-4 giờ đi xe).
+
+Bạn muốn mình tìm chuyến bay từ Hà Nội đến Đà Nẵng hoặc TP.HCM để tiếp tục hành trình đến Đà Lạt không ạ?
+[2026-04-07 15:30:36] [TURN 01] [TOOLS]: ['check_valid_locations']
+[2026-04-07 15:30:36] [TURN 01] [TIMING]: 10.63s
+[2026-04-07 15:30:36] [TURN 01] [STATE]: Messages: 3
+[2026-04-07 15:30:36] [TURN 01] [RESULT]: PASS
+--------------------------------------------------------------------------------
+[2026-04-07 15:30:45] [TURN 02] [USER]: Vậy từ Hà Nội đi được đâu gần Đà Lạt?
+[2026-04-07 15:30:45] [TURN 02] [AGENT]: Từ Hà Nội, bạn có thể bay thẳng đến hai thành phố gần Đà Lạt nhất là:
+
+1. **Đà Nẵng** – Cách Đà Lạt khoảng 300km (khoảng 4-5 giờ đi xe).
+2. **TP.HCM (Thành phố Hồ Chí Minh)** – Cách Đà Lạt khoảng 320km (khoảng 5-6 giờ đi xe).
+
+Cả hai thành phố này đều có đường bay trực tiếp từ Hà Nội.
+
+Bạn muốn mình tìm chuyến bay từ Hà Nội đến Đà Nẵng hoặc TP.HCM để tiếp tục hành trình đến Đà Lạt không ạ?
+[2026-04-07 15:30:45] [TURN 02] [TOOLS]: ['check_valid_locations']
+[2026-04-07 15:30:45] [TURN 02] [TIMING]: 8.86s
+[2026-04-07 15:30:45] [TURN 02] [STATE]: Messages: 3
+[2026-04-07 15:30:45] [TURN 02] [RESULT]: PASS
+--------------------------------------------------------------------------------
+[2026-04-07 15:31:17] [TURN 03] [USER]: OK vậy đi Đà Nẵng thay thế
+[2026-04-07 15:31:17] [TURN 03] [AGENT]: - Chuyến bay:  
+  1. Vietnam Airlines | 06:00–07:20 | Economy | 1.450.000 VND  
+  2. Vietnam Airlines | 14:00–15:20 | Business | 2.800.000 VND  
+  3. VietJet Air | 08:30–09:50 | Economy | 890.000 VND *(ưu tiên)*  
+  4. Bamboo Airways | 11:00–12:20 | Economy | 1.200.000 VND  
+
+- Khách sạn:  
+  1. Christina's Homestay (2 sao) – An Thuong – 350.000 VND/đêm – đánh giá 4.7  
+  2. Memory Hostel (2 sao) – Hai Chau – 250.000 VND/đêm – đánh giá 4.6 *(ưu tiên)*  
+
+- Tổng chi phí ước tính:  
+  - Vé máy bay (VietJet Air): 890.000 VND  
+  - Khách sạn (Memory Hostel): 250.000 VND/đêm × 2 đêm = 500.000 VND  
+  - **Tổng cộng: 1.390.000 VND** (chưa bao gồm ăn uống, di chuyển, hoạt động)
+
+- Gợi ý thêm:  
+  - Từ Đà Nẵng đến Đà Lạt, bạn có thể đi xe khách (khoảng 4-5 giờ, giá ~200.000–300.000 VND/vé).  
+  - Nên đặt xe trước để đảm bảo chỗ, đặc biệt vào mùa cao điểm.  
+  - Nếu muốn tiết kiệm, hãy chọn khách sạn ở khu vực Hai Chau (gần trung tâm, giá tốt).  
+
+Bạn muốn mình giúp đặt xe khách từ Đà Nẵng đi Đà Lạt hoặc gợi ý lịch trình tham quan Đà Lạt không ạ?
+[2026-04-07 15:31:17] [TURN 03] [TOOLS]: ['search_flights', 'search_hotels']
+[2026-04-07 15:31:17] [TURN 03] [TIMING]: 32.39s
+[2026-04-07 15:31:17] [TURN 03] [STATE]: Messages: 5
+[2026-04-07 15:31:17] [TURN 03] [RESULT]: PASS
+--------------------------------------------------------------------------------
