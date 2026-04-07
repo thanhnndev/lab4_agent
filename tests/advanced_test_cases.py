@@ -42,18 +42,23 @@ TEST_CASES = {
             ),
             TestPrompt(
                 prompt="Từ Hà Nội, đi 3 ngày 2 đêm",
-                expected_behavior="Nhớ context 'Đà Nẵng', hỏi budget",
-                should_call_tools=False,
-                expected_tools=[],
-            ),
-            TestPrompt(
-                prompt="Budget 5 triệu đồng",
-                expected_behavior="Dùng full context: Hà Nội→Đà Nẵng, 3N2Đ, 5 triệu để search",
+                expected_behavior="Nhớ context 'Đà Nẵng', có thể call tools vì đã có đủ info (origin, destination, dates)",
                 should_call_tools=True,
                 expected_tools=[
                     "check_valid_locations",
                     "search_flights",
                     "search_hotels",
+                ],
+            ),
+            TestPrompt(
+                prompt="Budget 5 triệu đồng",
+                expected_behavior="Dùng full context: Hà Nội→Đà Nẵng, 3N2Đ, 5 triệu để search và calculate budget",
+                should_call_tools=True,
+                expected_tools=[
+                    "check_valid_locations",
+                    "search_flights",
+                    "search_hotels",
+                    "calculate_budget",
                 ],
             ),
             TestPrompt(
@@ -102,13 +107,13 @@ TEST_CASES = {
         "prompts": [
             TestPrompt(
                 prompt="Tôi có 100 triệu, đi du lịch 1 tháng",
-                expected_behavior="Handle extreme budget, suggest multiple destinations",
+                expected_behavior="Call check_valid_locations first, sau đó suggest destinations với extreme budget",
                 should_call_tools=True,
                 expected_tools=["check_valid_locations"],
             ),
             TestPrompt(
                 prompt="Tìm khách sạn 50k/đêm",
-                expected_behavior="Handle extremely low budget, explain not available",
+                expected_behavior="Call search_hotels với max_price=50000, sau đó explain nếu không có sẵn",
                 should_call_tools=True,
                 expected_tools=["search_hotels"],
             ),
@@ -151,9 +156,13 @@ TEST_CASES = {
             ),
             TestPrompt(
                 prompt="Thôi vậy giúp tôi tìm tour du lịch học calculus ở Đà Nẵng",
-                expected_behavior="Accept vì liên quan du lịch, search hotels/flights",
+                expected_behavior="Accept vì đây là travel request (tour du lịch), search flights/hotels đến Đà Nẵng",
                 should_call_tools=True,
-                expected_tools=["search_flights", "search_hotels"],
+                expected_tools=[
+                    "check_valid_locations",
+                    "search_flights",
+                    "search_hotels",
+                ],
             ),
         ],
     },
@@ -186,9 +195,9 @@ TEST_CASES = {
             ),
             TestPrompt(
                 prompt="Thêm activities và restaurants gợi ý",
-                expected_behavior="Provide suggestions (dùng knowledge, không cần tools)",
-                should_call_tools=False,
-                expected_tools=[],
+                expected_behavior="Provide suggestions dùng knowledge, có thể call calculate_budget để update totals",
+                should_call_tools=True,
+                expected_tools=["calculate_budget"],
             ),
             TestPrompt(
                 prompt="Tổng cộng hết bao nhiêu tiền?",

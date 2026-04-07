@@ -48,7 +48,8 @@ tools_dict = {
 llm = ChatOllama(
     model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
     base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-    temperature=0,
+    reasoning=True,
+    temperature=0.3,
 )
 llm_with_tools = llm.bind_tools(tools_list)
 
@@ -109,6 +110,8 @@ def parse_tool_error(tool_name: str, args: dict, error: str) -> str:
     """Parse tool error and return helpful message for agent."""
     if "required" in error.lower() or "missing" in error.lower():
         return f"Error: Missing required parameter. Tool '{tool_name}' needs: {list(args.keys())}. Please check check_valid_locations for valid params."
+    if "not found" in error.lower() or "no route" in error.lower():
+        return f"Error: No routes found for these cities. Suggest alternative destinations from check_valid_locations."
     return f"Error calling {tool_name}: {error}"
 
 
