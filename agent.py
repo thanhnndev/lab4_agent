@@ -18,14 +18,15 @@ from langchain_core.messages import (
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 from langgraph.checkpoint.memory import InMemorySaver
 from typing_extensions import TypedDict
 
-from tools import calculate_budget, search_flights, search_hotels
+from tools import search_flights, search_hotels, calculate_budget, check_valid_locations
 
 load_dotenv()
 
+MAX_MESSAGES = 20
 
 with open("system_prompt.txt", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
@@ -37,7 +38,13 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-tools_list = [search_flights, search_hotels, calculate_budget]
+tools_list = [search_flights, search_hotels, calculate_budget, check_valid_locations]
+tools_dict = {
+    "search_flights": search_flights,
+    "search_hotels": search_hotels,
+    "calculate_budget": calculate_budget,
+    "check_valid_locations": check_valid_locations,
+}
 llm = ChatOllama(
     model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
     base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
@@ -55,9 +62,14 @@ def agent_node(state: AgentState) -> dict:
     """
     messages = list(state["messages"])
 
-    # Always ensure SystemMessage is first
-    # Remove any existing SystemMessage to avoid duplicates, then add fresh one
+    # Remove any existing SystemMessage to avoid duplicates
     messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
+
+    # TRUNCATION: Keep only last MAX_MESSAGES if too long
+    if len(messages) > MAX_MESSAGES:
+        messages = messages[-MAX_MESSAGES:]
+
+    # Add fresh SystemMessage at start
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
     response = llm_with_tools.invoke(messages)
@@ -91,6 +103,37 @@ def get_last_ai_message(messages: Sequence[BaseMessage]) -> AIMessage | None:
         if isinstance(msg, AIMessage):
             return msg
     return None
+
+
+def parse_tool_error(tool_name: str, args: dict, error: str) -> str:
+    """Parse tool error and return helpful message for agent."""
+    if "required" in error.lower() or "missing" in error.lower():
+        return f"Error: Missing required parameter. Tool '{tool_name}' needs: {list(args.keys())}. Please check check_valid_locations for valid params."
+    return f"Error calling {tool_name}: {error}"
+
+
+def tool_node_with_retry(state: AgentState) -> dict:
+    """Execute tools and parse errors for retry suggestions."""
+    messages = list(state["messages"])
+    last_ai = get_last_ai_message(messages)
+
+    if not last_ai or not last_ai.tool_calls:
+        return {"messages": []}
+
+    tool_messages = []
+    for tc in last_ai.tool_calls:
+        try:
+            result = tools_dict[tc["name"]].invoke(tc["args"])
+            tool_messages.append(
+                ToolMessage(content=result, tool_call_id=tc["id"], name=tc["name"])
+            )
+        except Exception as e:
+            error_msg = parse_tool_error(tc["name"], tc["args"], str(e))
+            tool_messages.append(
+                ToolMessage(content=error_msg, tool_call_id=tc["id"], name=tc["name"])
+            )
+
+    return {"messages": tool_messages}
 
 
 # Regex patterns for thinking extraction
@@ -155,7 +198,7 @@ memory = InMemorySaver()
 
 builder = StateGraph(AgentState)
 builder.add_node("agent", agent_node)
-builder.add_node("tools", ToolNode(tools_list))
+builder.add_node("tools", tool_node_with_retry)
 
 # Simple flow: agent -> (tools) -> agent -> END
 builder.add_edge(START, "agent")
@@ -201,6 +244,12 @@ def stream_agent_interaction(
     # Track which steps we've shown
     showed_thinking = False
     showed_tool_call = False
+    showed_truncation_warning = False
+
+    if len(all_messages) > MAX_MESSAGES:
+        print(f"\n⚠️  Truncation: Giữ lại {MAX_MESSAGES} messages cuối")
+        showed_truncation_warning = True
+        sys.stdout.flush()
 
     print("\n🤔 Agent đang suy nghĩ...")
     sys.stdout.flush()
@@ -262,7 +311,13 @@ def stream_agent_interaction(
                         )
                         if len(msg.content) > 200:
                             content_preview += "..."
-                        print(f"\n✅ Kết quả từ '{msg.name}': {content_preview}")
+
+                        # Show error indicator if this is an error message
+                        if "Error" in msg.content:
+                            print(f"\n⚠️  Lỗi từ '{msg.name}': {content_preview}")
+                            print(f"   💡 Agent sẽ retry với tham số đúng")
+                        else:
+                            print(f"\n✅ Kết quả từ '{msg.name}': {content_preview}")
                         sys.stdout.flush()
 
                 # After tools, agent will think again
