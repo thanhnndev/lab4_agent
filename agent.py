@@ -60,7 +60,9 @@ def agent_node(state: AgentState) -> dict:
     """
     Agent node that processes messages and generates responses.
     The SystemMessage is always added at the beginning of the conversation.
-    Uses streaming with accumulation to support real-time UX.
+
+    NOTE: Real-time streaming happens via stream_mode="messages" in graph.stream(),
+    not inside this node. This node just invokes the LLM and returns the result.
     """
     messages = list(state["messages"])
 
@@ -74,13 +76,11 @@ def agent_node(state: AgentState) -> dict:
     # Add fresh SystemMessage at start
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
-    # Stream and accumulate chunks
-    full_response = None
-    for chunk in llm_with_tools.stream(messages):
-        full_response = chunk if full_response is None else full_response + chunk
+    # Invoke LLM (streaming is handled by graph.stream() with stream_mode="messages")
+    response = llm_with_tools.invoke(messages)
 
-    # Return accumulated message (will be AIMessageChunk with full content/tool_calls)
-    return {"messages": [full_response]}
+    # Return the response message
+    return {"messages": [response]}
 
 
 def get_last_ai_message_content(messages: Sequence[BaseMessage]) -> str:
@@ -239,7 +239,7 @@ def stream_agent_interaction(
 ) -> tuple[str, list, float, str | None]:
     """
     Stream the agent interaction and show intermediate steps.
-    Uses real streaming with accumulation from the model.
+    Uses stream_mode="messages" for real-time LLM token streaming.
 
     Returns:
         - final_response: The final text response
@@ -252,9 +252,11 @@ def stream_agent_interaction(
     tool_calls_made = []
     thinking_content = None
 
-    # Track which steps we've shown
+    # Track streaming state
     showed_thinking = False
-    showed_tool_call = False
+    showed_tool_call = set()  # Track which tool calls we've shown
+    showed_final_response = False
+    current_streaming_content = []
 
     # Check for truncation upfront
     try:
@@ -268,78 +270,112 @@ def stream_agent_interaction(
     print("\n🤔 Agent đang suy nghĩ...")
     sys.stdout.flush()
 
-    # Stream through the graph
+    # Stream with BOTH messages (for LLM tokens) and updates (for node results)
     for chunk in graph.stream(
         {"messages": [user_message]},
         config=config,
-        stream_mode="updates",
+        stream_mode=["messages", "updates"],
+        version="v2",
     ):
-        for node_name, node_output in chunk.items():
-            if node_name == "agent":
-                # Agent node executed
-                messages = node_output.get("messages", [])
-                all_messages.extend(messages)
+        if chunk["type"] == "messages":
+            # Real-time LLM token streaming
+            msg, metadata = chunk["data"]
+            node_name = metadata.get("langgraph_node", "unknown")
 
-                for msg in messages:
-                    if isinstance(msg, AIMessage):
-                        # Check for tool calls
-                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            # Only stream from agent node
+            if node_name == "agent" and isinstance(msg, AIMessageChunk):
+                # Handle tool_calls appearing in chunks
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tc_id = tc.get("id", "")
+                        if tc_id and tc_id not in showed_tool_call:
                             if not showed_tool_call:
                                 print(f"\n🔧 Đang gọi công cụ:")
-                                showed_tool_call = True
+                            formatted = format_tool_call(tc)
+                            tool_calls_made.append(tc)
+                            print(f"   📞 {formatted}")
+                            sys.stdout.flush()
+                            showed_tool_call.add(tc_id)
 
-                            for tc in msg.tool_calls:
-                                formatted = format_tool_call(tc)
-                                tool_calls_made.append(tc)
-                                print(f"   📞 {formatted}")
-                                sys.stdout.flush()
+                # Handle content/token streaming
+                if msg.content:
+                    # Try to extract thinking from accumulated content
+                    full_content = "".join(current_streaming_content) + msg.content
+                    thinking, clean = extract_thinking(full_content)
 
-                        # Check for content (thinking or response)
-                        if msg.content:
-                            # Try to extract thinking
-                            thinking, clean = extract_thinking(msg.content)
-                            if thinking and not showed_thinking:
-                                thinking_content = thinking
-                                if DEV_MODE:
-                                    print(
-                                        f"\n🧠 Phát hiện suy nghĩ nội bộ ({len(thinking)} ký tự)"
-                                    )
-                                    sys.stdout.flush()
-                                showed_thinking = True
+                    if thinking and not showed_thinking:
+                        thinking_content = thinking
+                        if DEV_MODE:
+                            print(
+                                f"\n🧠 Phát hiện suy nghĩ nội bộ ({len(thinking)} ký tự)"
+                            )
+                            sys.stdout.flush()
+                        showed_thinking = True
 
-                            # If this is a response with no tool calls, it's the final answer
-                            if not (hasattr(msg, "tool_calls") and msg.tool_calls):
-                                # Stream the final response content
-                                print(f"\n📝 Câu trả lời:")
-                                sys.stdout.flush()
-
-            elif node_name == "tools":
-                # Tools node executed
-                messages = node_output.get("messages", [])
-                all_messages.extend(messages)
-
-                for msg in messages:
-                    if isinstance(msg, ToolMessage):
-                        # Truncate long tool results
-                        content_preview = (
-                            msg.content[:200] if len(msg.content) > 200 else msg.content
-                        )
-                        if len(msg.content) > 200:
-                            content_preview += "..."
-
-                        # Show error indicator if this is an error message
-                        if "Error" in msg.content:
-                            print(f"\n⚠️  Lỗi từ '{msg.name}': {content_preview}")
-                            print(f"   💡 Agent sẽ retry với tham số đúng")
+                    # Stream tokens in real-time (only non-thinking content)
+                    if not showed_final_response:
+                        if not showed_thinking or not thinking:
+                            # No thinking detected yet, stream everything
+                            print(msg.content, end="", flush=True)
                         else:
-                            print(f"\n✅ Kết quả từ '{msg.name}': {content_preview}")
-                        sys.stdout.flush()
+                            # Thinking detected, only stream clean content
+                            # For simplicity, stream everything after thinking detection
+                            print(msg.content, end="", flush=True)
 
-                # After tools, agent will think again
-                showed_thinking = False
-                showed_tool_call = False
-                print(f"\n🤔 Agent đang phân tích kết quả...")
-                sys.stdout.flush()
+                    current_streaming_content.append(msg.content)
+
+        elif chunk["type"] == "updates":
+            # Node completion updates
+            for node_name, node_output in chunk["data"].items():
+                if node_name == "agent":
+                    messages = node_output.get("messages", [])
+                    all_messages.extend(messages)
+
+                    # Check if this is final response (no tool calls)
+                    for msg in messages:
+                        if isinstance(msg, AIMessage) and msg.content:
+                            if not (hasattr(msg, "tool_calls") and msg.tool_calls):
+                                if not showed_final_response:
+                                    print(f"\n📝 Câu trả lời:")
+                                    sys.stdout.flush()
+                                    showed_final_response = True
+
+                elif node_name == "tools":
+                    # Tools node executed
+                    messages = node_output.get("messages", [])
+                    all_messages.extend(messages)
+
+                    for msg in messages:
+                        if isinstance(msg, ToolMessage):
+                            # Truncate long tool results
+                            content_preview = (
+                                msg.content[:200]
+                                if len(msg.content) > 200
+                                else msg.content
+                            )
+                            if len(msg.content) > 200:
+                                content_preview += "..."
+
+                            # Show error indicator if this is an error message
+                            if "Error" in msg.content:
+                                print(f"\n⚠️  Lỗi từ '{msg.name}': {content_preview}")
+                                print(f"   💡 Agent sẽ retry với tham số đúng")
+                            else:
+                                print(
+                                    f"\n✅ Kết quả từ '{msg.name}': {content_preview}"
+                                )
+                            sys.stdout.flush()
+
+                    # After tools, agent will think again - reset flags
+                    showed_thinking = False
+                    showed_tool_call = set()
+                    showed_final_response = False
+                    current_streaming_content = []
+                    print(f"\n🤔 Agent đang phân tích kết quả...")
+                    sys.stdout.flush()
+
+    # Add a newline after streaming completes
+    print()
 
     elapsed_time = time.time() - start_time
 
